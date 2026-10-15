@@ -1,0 +1,43 @@
+# =====================================================================
+#  Clean URLs (no .php in address bar)
+#
+#  URL                              File that runs
+#  /fenvita_project/                modules/dashboard/index.php
+#  /fenvita_project/purchase        modules/purchase/index.php
+#  /fenvita_project/purchase/add    modules/purchase/add.php
+#  /fenvita_project/purchase/edit/5 modules/purchase/add.php?id=5
+#  /fenvita_project/purchase/print/5 modules/purchase/print.php?id=5
+#  /fenvita_project/purchase/delete modules/purchase/delete.php (POST)
+#
+#  Works in any folder (localhost/fenvita_project or a domain root) -
+#  no folder name is written here.
+# =====================================================================
+Options -Indexes -MultiViews
+DirectoryIndex index.php
+
+RewriteEngine On
+
+# Project base path (e.g. /fenvita_project/ or /) stored in %{ENV:BASE}
+RewriteCond %{REQUEST_URI}::$1 ^(.*?/)(.*)::\2$
+RewriteRule ^(.*)$ - [E=BASE:%1]
+
+# 1) Address typed with .php  ->  redirect to the clean URL
+#    e.g. /purchase/add.php -> /purchase/add , /sales.php -> /sales
+RewriteCond %{THE_REQUEST} \s/[^?\s]*\.php[?\s]
+RewriteRule ^(?:modules/)?(.*?)(?:index)?\.php$ %{ENV:BASE}$1 [R=301,L]
+
+# 2) Internal folders cannot be opened directly from browser
+RewriteCond %{ENV:REDIRECT_STATUS} ^$
+RewriteRule ^(modules|includes|config|database)(/|$) - [R=404,L]
+
+# 3) Real files (css, js, images) are served as they are
+RewriteCond %{REQUEST_FILENAME} -f
+RewriteRule ^ - [L]
+
+# 4) Routes
+RewriteRule ^$                                      modules/dashboard/index.php          [L]
+RewriteRule ^(login|logout|profile)/?$              modules/auth/$1.php                  [QSA,L]
+RewriteRule ^([a-z_]+)/edit/([0-9]+)/?$             modules/$1/add.php?id=$2             [QSA,L]
+RewriteRule ^([a-z_]+)/(print|view)/([0-9]+)/?$     modules/$1/$2.php?id=$3              [QSA,L]
+RewriteRule ^([a-z_]+)/?$                           modules/$1/index.php                 [QSA,L]
+RewriteRule ^([a-z_]+)/([a-z_]+)/?$                 modules/$1/$2.php                    [QSA,L]

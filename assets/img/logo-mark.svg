@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <defs>
+    <clipPath id="hex"><polygon points="50,4 92,27 92,73 50,96 8,73 8,27"/></clipPath>
+  </defs>
+  <polygon points="50,4 92,27 92,73 50,96 8,73 8,27" fill="#632a4a" stroke="#8c7b73" stroke-width="2.5"/>
+  <g clip-path="url(#hex)" stroke="#ffffff" stroke-width="6" fill="none">
+    <line x1="0" y1="58" x2="100" y2="8"/>
+    <polyline points="32,100 32,74 100,40"/>
+  </g>
+</svg>

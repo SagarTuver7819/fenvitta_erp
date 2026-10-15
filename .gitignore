@@ -1,0 +1,14 @@
+# Server specific settings (database password)
+config/config.local.php
+
+# Client documents / reference files
+*.xlsx
+*.xlsm
+*.xls
+/fenvita.jpg
+
+# OS / editor
+Thumbs.db
+.DS_Store
+.vscode/
+.idea/
