@@ -325,31 +325,65 @@ function rm_batches_used_on_inward(int $inwardId): bool
     ) > 0;
 }
 
-/** Auto status: Production Done when approved output >= batch_size (default 1000 kg). */
-function refresh_production_status(int $batchId): void
+/** Output to FG stock only when QC is Approved. */
+function sync_output_stock(int $outputId): void
+{
+    $o = row('SELECT o.*, b.item_id, b.batch_no FROM batch_outputs o JOIN production_batches b ON b.id = o.batch_id WHERE o.id=?', [$outputId]);
+    ledger_clear('BATCH_OUTPUT', $outputId);
+    if ($o && $o['qc_status'] === 'Approved') {
+        ledger_add($o['output_date'], (int)$o['item_id'], (float)$o['qty'], 0, 'BATCH_OUTPUT', $outputId, 0, (int)$o['batch_id'], 'Output of batch ' . $o['batch_no']);
+    }
+}
+
+/** Create next fixed 1000 kg production batch after current one is done. */
+function create_next_production_batch(array $fromBatch): ?int
+{
+    $item = row('SELECT * FROM items WHERE id=?', [(int)$fromBatch['item_id']]);
+    if (!$item) return null;
+    $newNo = next_batch_no($item);
+    return insert('production_batches', [
+        'batch_no' => $newNo,
+        'item_id' => (int)$fromBatch['item_id'],
+        'plant' => $fromBatch['plant'],
+        'batch_size' => 1000,
+        'start_date' => today(),
+        'status' => 'Planned',
+        'remarks' => 'Auto-created after ' . $fromBatch['batch_no'] . ' completed 1000 kg',
+        'created_by' => current_user()['id'] ?? null,
+    ]);
+}
+
+/**
+ * Auto status: Production Done when approved output >= batch_size (1000 kg).
+ * On first transition to Production Done, auto-generates next O/P batch.
+ * @return int|null  new production batch id if created
+ */
+function refresh_production_status(int $batchId): ?int
 {
     $b = row('SELECT * FROM production_batches WHERE id=?', [$batchId]);
-    if (!$b || $b['status'] === 'Cancelled') return;
+    if (!$b || $b['status'] === 'Cancelled') return null;
 
     $outQty = (float)val("SELECT COALESCE(SUM(qty),0) FROM batch_outputs WHERE batch_id=? AND qc_status='Approved'", [$batchId]);
-    $size = (float)$b['batch_size'];
+    $size = (float)$b['batch_size'] ?: 1000;
     $hasRm = (int)val('SELECT COUNT(*) FROM batch_rm WHERE batch_id=?', [$batchId]) > 0;
+    $wasDone = in_array($b['status'], ['Production Done', 'Completed'], true);
+    $newBatchId = null;
 
-    if ($size > 0 && $outQty + 0.0005 >= $size) {
+    if ($outQty + 0.0005 >= $size) {
         $data = ['status' => 'Production Done'];
         if (!$b['end_date']) $data['end_date'] = today();
         if (!$b['mfg_date']) $data['mfg_date'] = today();
         update('production_batches', $data, $batchId);
-    } elseif ($b['status'] === 'Production Done' && $outQty + 0.0005 < $size) {
+        if (!$wasDone) {
+            $newBatchId = create_next_production_batch($b);
+        }
+    } elseif ($wasDone && $outQty + 0.0005 < $size) {
         update('production_batches', ['status' => ($hasRm || $outQty > 0 ? 'In Process' : 'Planned')], $batchId);
     } elseif ($b['status'] === 'Planned' && ($hasRm || $outQty > 0)) {
         update('production_batches', ['status' => 'In Process'], $batchId);
-    } elseif ($b['status'] === 'Completed') {
-        // legacy status name -> new name when target reached
-        if ($size > 0 && $outQty + 0.0005 >= $size) {
-            update('production_batches', ['status' => 'Production Done'], $batchId);
-        }
     }
+
+    return $newBatchId;
 }
 
 /* ---------------- Stock ---------------- */

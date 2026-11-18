@@ -1,25 +1,22 @@
 <?php
 require_once __DIR__ . '/../../includes/init.php';
 
-/** Output goes to FG stock only when QC is Approved */
-function sync_output_stock($outputId)
-{
-    $o = row('SELECT o.*, b.item_id, b.batch_no FROM batch_outputs o JOIN production_batches b ON b.id = o.batch_id WHERE o.id=?', [$outputId]);
-    ledger_clear('BATCH_OUTPUT', (int)$outputId);
-    if ($o && $o['qc_status'] === 'Approved') {
-        ledger_add($o['output_date'], (int)$o['item_id'], (float)$o['qty'], 0, 'BATCH_OUTPUT', (int)$outputId, 0, (int)$o['batch_id'], 'Output of batch ' . $o['batch_no']);
-    }
-}
-
 // ---------- Save ----------
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && post('action') === 'save') {
     $batchId = (int)post('batch_id');
     $qtyVal = num(post('qty'));
     if (!$batchId || $qtyVal <= 0) {
-        flash('danger', 'Select batch and enter output quantity.');
+        flash('danger', 'Select batch and enter output quantity (O/P kg).');
         redirect('batch_output');
     }
+    $batch = row('SELECT * FROM production_batches WHERE id=?', [$batchId]);
+    if ($batch && in_array($batch['status'], ['Production Done', 'Completed', 'Cancelled'], true)) {
+        flash('danger', 'This production batch is already ' . $batch['status'] . '. Use the next O/P batch.');
+        redirect('batch_output');
+    }
+
     $date = date_or_null(post('output_date')) ?? today();
+    $qc = in_array(post('qc_status'), ['Pending', 'Approved', 'Rejected']) ? post('qc_status') : 'Approved';
     $id = insert('batch_outputs', [
         'batch_id' => $batchId,
         'output_date' => $date,
@@ -27,16 +24,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && post('action') === 'save') {
         'grade' => post('grade'),
         'containers' => (int)post('containers'),
         'pack_type' => post('pack_type'),
-        'qc_status' => in_array(post('qc_status'), ['Pending', 'Approved', 'Rejected']) ? post('qc_status') : 'Approved',
+        'qc_status' => $qc,
         'remarks' => post('remarks'),
     ]);
     sync_output_stock($id);
-    refresh_production_status($batchId);
+    $newBatchId = refresh_production_status($batchId);
 
-    $b = row('SELECT * FROM production_batches WHERE id=?', [$batchId]);
-    $msg = 'Output entry saved' . (post('qc_status') === 'Approved' ? ' and added to Finish Goods stock.' : '. It will be added to stock after QC approval.');
-    if ($b && $b['status'] === 'Production Done') {
-        $msg .= ' Production batch marked Production Done (1000 kg complete).';
+    $msg = 'O/P ' . qty($qtyVal) . ' kg saved' . ($qc === 'Approved' ? ' into FG stock.' : ' (pending QC).');
+    if ($newBatchId) {
+        $nb = row('SELECT batch_no FROM production_batches WHERE id=?', [$newBatchId]);
+        $msg .= ' Batch reached 1000 kg → Production Done. New O/P batch created: ' . ($nb['batch_no'] ?? '');
+        flash('success', $msg);
+        redirect('production/view/' . $newBatchId);
     }
     flash('success', $msg);
     redirect('batch_output?batch_id=' . $batchId);
@@ -99,9 +98,9 @@ include ROOT_PATH . '/includes/header.php';
                     <?= csrf_field() ?>
                     <input type="hidden" name="action" value="save">
                     <div class="row g-2">
-                        <div class="col-12"><label class="form-label">Batch *</label><select name="batch_id" class="form-select" required><?= batch_options($batchId) ?></select></div>
+                        <div class="col-12"><label class="form-label">Production Batch *</label><select name="batch_id" class="form-select" required><?= batch_options($batchId, true) ?></select></div>
                         <div class="col-6"><label class="form-label">Output Date *</label><input type="date" name="output_date" class="form-control" value="<?= today() ?>" required></div>
-                        <div class="col-6"><label class="form-label">Output Qty (kg) *</label><input type="number" step="0.001" name="qty" class="form-control" required></div>
+                        <div class="col-6"><label class="form-label">O/P kg *</label><input type="number" step="0.001" name="qty" class="form-control fw-bold" placeholder="e.g. 150" required></div>
                         <div class="col-6"><label class="form-label">Grade</label><input name="grade" class="form-control" value="<?= e($defaultGrade ?: 'IP/USP') ?>"></div>
                         <div class="col-6"><label class="form-label">QC Status</label>
                             <select name="qc_status" class="form-select"><option>Approved</option><option>Pending</option><option>Rejected</option></select></div>
@@ -109,9 +108,9 @@ include ROOT_PATH . '/includes/header.php';
                         <div class="col-6"><label class="form-label">Pack Type</label><input name="pack_type" class="form-control" list="packList" value="HDPE Drum">
                             <datalist id="packList"><option>HDPE Drum</option><option>Fibre Drum</option><option>Bag</option><option>Carboy</option></datalist></div>
                         <div class="col-12"><label class="form-label">Remarks</label><input name="remarks" class="form-control"></div>
-                        <div class="col-12"><small class="text-muted">When approved output reaches <b>1000 kg</b> (batch size), status auto-sets to <b>Production Done</b>.</small></div>
+                        <div class="col-12"><small class="text-muted">1000 kg pure thay tyare <b>Production Done</b> + <b>navi O/P batch</b> auto create thase. Simple entry mate Production Batch open kari O/P kg → OK pan use kari sako.</small></div>
                     </div>
-                    <button class="btn btn-primary mt-3"><i class="bi bi-check2"></i> Save Output</button>
+                    <button class="btn btn-primary mt-3"><i class="bi bi-check2"></i> OK — Save O/P</button>
                 </form>
             </div>
         </div>
