@@ -221,6 +221,53 @@ function next_series(string $table, string $col, string $prefix, ?string $date =
     return "$prefix/$fy/" . str_pad((string)($max + 1), 3, '0', STR_PAD_LEFT);
 }
 
+/* ---------------- Purchase Inward (against PO) ---------------- */
+/** Qty already inwarded for one PO line (optionally exclude one inward being edited). */
+function inward_received_qty(int $purchaseItemId, int $exceptInwardId = 0): float
+{
+    return (float)val(
+        'SELECT COALESCE(SUM(qty),0) FROM inward_items WHERE purchase_item_id=? AND inward_id<>?',
+        [$purchaseItemId, $exceptInwardId]
+    );
+}
+
+/** PO lines with ordered / received / pending qty. */
+function purchase_inward_lines(int $purchaseId, int $exceptInwardId = 0): array
+{
+    $lines = rows(
+        'SELECT pi.*, i.name item_name, i.item_type, i.code item_code
+         FROM purchase_items pi JOIN items i ON i.id = pi.item_id
+         WHERE pi.purchase_id=? ORDER BY pi.id',
+        [$purchaseId]
+    );
+    foreach ($lines as &$l) {
+        $l['received'] = inward_received_qty((int)$l['id'], $exceptInwardId);
+        $l['pending'] = max(0, (float)$l['qty'] - $l['received']);
+    }
+    unset($l);
+    return $lines;
+}
+
+function purchase_inward_totals(int $purchaseId): array
+{
+    $ordered = (float)val(
+        "SELECT COALESCE(SUM(pi.qty),0) FROM purchase_items pi
+         JOIN items i ON i.id = pi.item_id WHERE pi.purchase_id=? AND i.item_type<>'SERVICE'",
+        [$purchaseId]
+    );
+    $received = (float)val(
+        "SELECT COALESCE(SUM(ii.qty),0) FROM inward_items ii
+         JOIN inward_entries ie ON ie.id = ii.inward_id WHERE ie.purchase_id=?",
+        [$purchaseId]
+    );
+    return [
+        'ordered' => $ordered,
+        'received' => $received,
+        'pending' => max(0, $ordered - $received),
+        'status' => $ordered <= 0 ? 'N/A' : ($received <= 0.0005 ? 'Pending' : ($received + 0.0005 >= $ordered ? 'Complete' : 'Partial')),
+    ];
+}
+
 /* ---------------- Stock ---------------- */
 function ledger_clear(string $refType, int $refId): void
 {
@@ -378,7 +425,7 @@ function delete_button(string $module, int $id, string $confirm = 'Delete this e
 function status_badge(string $s): string
 {
     $map = [
-        'Paid' => 'success', 'Received' => 'success', 'Completed' => 'success', 'Approved' => 'success', 'Dispatched' => 'success',
+        'Paid' => 'success', 'Received' => 'success', 'Completed' => 'success', 'Complete' => 'success', 'Approved' => 'success', 'Dispatched' => 'success',
         'Partial' => 'warning', 'In Process' => 'warning', 'Pending' => 'secondary', 'Planned' => 'info',
         'Overdue' => 'danger', 'Cancelled' => 'dark', 'Rejected' => 'danger', 'Unpaid' => 'secondary', 'Not Dispatched' => 'secondary',
     ];

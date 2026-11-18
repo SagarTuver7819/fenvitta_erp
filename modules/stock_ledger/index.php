@@ -6,7 +6,7 @@ $from = get('from', fy_start());
 $to = get('to', today());
 
 $refLabels = [
-    'OPENING' => 'Opening Stock', 'PURCHASE' => 'Purchase', 'RM_UTILITY' => 'RM Utility',
+    'OPENING' => 'Opening Stock', 'PURCHASE' => 'Purchase', 'INWARD' => 'Inward (Against PO)', 'RM_UTILITY' => 'RM Utility',
     'BATCH_RM' => 'Issued to Batch', 'BATCH_OUTPUT' => 'Production Output', 'DISPATCH' => 'Dispatch',
 ];
 

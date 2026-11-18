@@ -9,8 +9,8 @@ $typeList = $type === 'ALL' ? "'RM','PM','CONSUMABLE'" : "'" . (in_array($type, 
 // Same format as Excel "ALTITUDE STOCK UPDATE": Opening + Purchase + Other In - Used in batch - Other Out = Closing
 $sql = "SELECT i.id, i.code, i.name, i.unit, i.item_type, i.reorder_level,
           COALESCE(SUM(CASE WHEN l.trans_date < ? THEN l.qty_in - l.qty_out ELSE 0 END),0) opening,
-          COALESCE(SUM(CASE WHEN l.trans_date BETWEEN ? AND ? AND l.ref_type = 'PURCHASE' THEN l.qty_in ELSE 0 END),0) purchase,
-          COALESCE(SUM(CASE WHEN l.trans_date BETWEEN ? AND ? AND l.ref_type <> 'PURCHASE' THEN l.qty_in ELSE 0 END),0) other_in,
+          COALESCE(SUM(CASE WHEN l.trans_date BETWEEN ? AND ? AND l.ref_type IN ('PURCHASE','INWARD') THEN l.qty_in ELSE 0 END),0) purchase,
+          COALESCE(SUM(CASE WHEN l.trans_date BETWEEN ? AND ? AND l.ref_type NOT IN ('PURCHASE','INWARD') THEN l.qty_in ELSE 0 END),0) other_in,
           COALESCE(SUM(CASE WHEN l.trans_date BETWEEN ? AND ? AND l.ref_type = 'BATCH_RM' THEN l.qty_out ELSE 0 END),0) used_batch,
           COALESCE(SUM(CASE WHEN l.trans_date BETWEEN ? AND ? AND l.ref_type <> 'BATCH_RM' THEN l.qty_out ELSE 0 END),0) other_out,
           COALESCE(SUM(CASE WHEN l.trans_date <= ? THEN l.qty_in - l.qty_out ELSE 0 END),0) closing
@@ -45,7 +45,7 @@ include ROOT_PATH . '/includes/header.php';
     </div>
     <div class="col-md-5 d-flex gap-2">
         <button class="btn btn-sm btn-primary"><i class="bi bi-funnel"></i> Show</button>
-        <a href="<?= url('purchase/add') ?>" class="btn btn-sm btn-outline-primary ms-auto"><i class="bi bi-cart-plus"></i> Purchase (Stock In)</a>
+        <a href="<?= url('inward/add') ?>" class="btn btn-sm btn-outline-primary ms-auto"><i class="bi bi-box-arrow-in-down"></i> Inward (Stock In)</a>
         <a href="<?= url('rm_utilities') ?>" class="btn btn-sm btn-accent"><i class="bi bi-droplet-half"></i> RM Utilities Entry</a>
     </div>
 </form>

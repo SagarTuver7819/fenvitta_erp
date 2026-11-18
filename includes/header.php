@@ -16,7 +16,8 @@ unset($_SESSION['welcome']);
 $navMenu = [
     ['Dashboard', 'bi-speedometer2', '', 'dashboard'],
     ['ACCOUNT ENTRY', null, [
-        ['Purchase Entry', 'bi-cart-plus', 'purchase', 'purchase'],
+        ['Purchase Entry (PO)', 'bi-cart-plus', 'purchase', 'purchase'],
+        ['Inward Entry (Against PO)', 'bi-box-arrow-in-down', 'inward', 'inward'],
         ['Purchase Outstanding', 'bi-hourglass-split', 'purchase/outstanding', 'purchase_outstanding'],
         ['Sales Entry', 'bi-receipt', 'sales', 'sales'],
         ['Sales Outstanding', 'bi-cash-coin', 'sales/outstanding', 'sales_outstanding'],

@@ -99,6 +99,32 @@ CREATE TABLE purchase_items (
   INDEX (purchase_id), INDEX (item_id)
 ) ENGINE=InnoDB;
 
+-- Goods Receipt / Inward against Purchase Order (supports Partial Inward)
+CREATE TABLE inward_entries (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  inward_no VARCHAR(40) NOT NULL,
+  inward_date DATE NOT NULL,
+  purchase_id INT NOT NULL,
+  party_id INT NOT NULL,
+  invoice_no VARCHAR(60) NULL,
+  vehicle_no VARCHAR(60) NULL,
+  remarks TEXT NULL,
+  created_by INT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  INDEX (inward_date), INDEX (purchase_id), INDEX (party_id)
+) ENGINE=InnoDB;
+
+CREATE TABLE inward_items (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  inward_id INT NOT NULL,
+  purchase_item_id INT NOT NULL,
+  item_id INT NOT NULL,
+  qty DECIMAL(14,3) NOT NULL DEFAULT 0,
+  unit VARCHAR(15) NULL,
+  rate DECIMAL(14,2) NOT NULL DEFAULT 0,
+  INDEX (inward_id), INDEX (purchase_item_id), INDEX (item_id)
+) ENGINE=InnoDB;
+
 CREATE TABLE sales (
   id INT AUTO_INCREMENT PRIMARY KEY,
   invoice_no VARCHAR(40) NOT NULL,
@@ -307,6 +333,7 @@ INSERT INTO settings (skey, svalue) VALUES
 ('sale_prefix', 'FNV'),
 ('po_prefix', 'FNV'),
 ('dispatch_prefix', 'DSP'),
+('inward_prefix', 'GRN'),
 ('label_storage', 'Store in a well closed container at a temperature not exceeding 30Â°C. Protect from light & moisture.'),
 ('po_terms', 'Material shelf life should not be more than 3 months. Invoice, Packing list, LR copy, original COA with sign and stamp must come with material. Packing label must contain Product Name, CAS No., Batch No., Mfg. Date, Exp. Date, Net Wt., Tare Wt., Gross Wt. & QR Code. All terms and conditions as per Rajkot jurisdiction.');
 

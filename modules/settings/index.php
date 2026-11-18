@@ -14,6 +14,7 @@ $fields = [
     'sale_prefix' => ['Sales Invoice Prefix (e.g. FNV -> FNV/1/26-27)', 'text'],
     'po_prefix' => ['Purchase Order Prefix (e.g. FNV -> FNV/26-27/001)', 'text'],
     'dispatch_prefix' => ['Dispatch No Prefix (e.g. DSP -> DSP/26-27/001)', 'text'],
+    'inward_prefix' => ['Inward / GRN Prefix (e.g. GRN -> GRN/26-27/001)', 'text'],
     'label_storage' => ['Default Storage Condition (Packing Label)', 'textarea'],
     'po_terms' => ['Purchase Order Terms & Conditions', 'textarea'],
 ];

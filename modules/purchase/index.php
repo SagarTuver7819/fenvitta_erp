@@ -5,13 +5,17 @@ require_once __DIR__ . '/../../includes/init.php';
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && post('action') === 'delete') {
     require_admin();
     $id = (int)post('id');
+    if ((int)val('SELECT COUNT(*) FROM inward_entries WHERE purchase_id=?', [$id]) > 0) {
+        flash('warning', 'This PO has Inward entries. Delete those inwards first, then delete the PO.');
+        redirect('purchase');
+    }
     db_begin();
     q('DELETE FROM purchase_items WHERE purchase_id=?', [$id]);
     q("DELETE FROM payments WHERE pay_type='PAYMENT' AND ref_id=?", [$id]);
     q('DELETE FROM purchases WHERE id=?', [$id]);
     ledger_clear('PURCHASE', $id);
     db_commit();
-    flash('success', 'Purchase entry deleted.');
+    flash('success', 'Purchase Order deleted.');
     redirect('purchase');
 }
 
@@ -23,7 +27,9 @@ $category = get('category');
 $sql = "SELECT pu.*, pa.name party,
           (SELECT GROUP_CONCAT(i.name SEPARATOR ', ') FROM purchase_items pi JOIN items i ON i.id = pi.item_id WHERE pi.purchase_id = pu.id) products,
           (SELECT SUM(qty) FROM purchase_items WHERE purchase_id = pu.id) qty,
-          (SELECT COALESCE(SUM(amount+tds),0) FROM payments WHERE pay_type='PAYMENT' AND ref_id = pu.id) paid
+          (SELECT COALESCE(SUM(amount+tds),0) FROM payments WHERE pay_type='PAYMENT' AND ref_id = pu.id) paid,
+          (SELECT COALESCE(SUM(pi.qty),0) FROM purchase_items pi JOIN items i ON i.id=pi.item_id WHERE pi.purchase_id=pu.id AND i.item_type<>'SERVICE') ordered_qty,
+          (SELECT COALESCE(SUM(ii.qty),0) FROM inward_items ii JOIN inward_entries ie ON ie.id=ii.inward_id WHERE ie.purchase_id=pu.id) inward_qty
         FROM purchases pu JOIN parties pa ON pa.id = pu.party_id
         WHERE pu.purchase_date BETWEEN ? AND ?";
 $params = [$from, $to];
@@ -60,7 +66,8 @@ include ROOT_PATH . '/includes/header.php';
     </div>
     <div class="col-md-3 d-flex gap-2">
         <button class="btn btn-sm btn-primary"><i class="bi bi-funnel"></i> Filter</button>
-        <a href="<?= url('purchase/add') ?>" class="btn btn-sm btn-accent ms-auto"><i class="bi bi-plus-lg"></i> New Purchase</a>
+        <a href="<?= url('inward/add') ?>" class="btn btn-sm btn-outline-primary"><i class="bi bi-box-arrow-in-down"></i> Inward</a>
+        <a href="<?= url('purchase/add') ?>" class="btn btn-sm btn-accent ms-auto"><i class="bi bi-plus-lg"></i> New PO</a>
     </div>
 </form>
 
@@ -73,13 +80,15 @@ include ROOT_PATH . '/includes/header.php';
     </div>
     <div class="table-responsive">
         <table class="table table-sm table-hover" id="tbl">
-            <thead><tr><th>Date</th><th>PO No</th><th>Invoice No</th><th>Supplier</th><th>Category</th><th>Products</th><th class="num">Qty</th><th class="num">Basic</th><th class="num">GST</th><th class="num">Total</th><th>Status</th><th class="no-export"></th></tr></thead>
+            <thead><tr><th>Date</th><th>PO No</th><th>Invoice No</th><th>Supplier</th><th>Category</th><th>Products</th><th class="num">Qty</th><th class="num">Basic</th><th class="num">GST</th><th class="num">Total</th><th>Payment</th><th>Inward</th><th class="no-export"></th></tr></thead>
             <tbody>
             <?php $tot = ['sub' => 0, 'gst' => 0, 'total' => 0];
             foreach ($list as $p):
                 $tot['sub'] += $p['subtotal']; $tot['gst'] += $p['gst_amount']; $tot['total'] += $p['total'];
                 $bal = $p['total'] - $p['paid'];
-                $status = $bal <= 0.5 ? 'Paid' : ($p['paid'] > 0 ? 'Partial' : 'Unpaid'); ?>
+                $payStatus = $bal <= 0.5 ? 'Paid' : ($p['paid'] > 0 ? 'Partial' : 'Unpaid');
+                $ord = (float)$p['ordered_qty']; $rec = (float)$p['inward_qty'];
+                $inStatus = $ord <= 0 ? 'N/A' : ($rec <= 0.0005 ? 'Pending' : ($rec + 0.0005 >= $ord ? 'Complete' : 'Partial')); ?>
                 <tr>
                     <td><?= dmy($p['purchase_date']) ?></td>
                     <td><?= e($p['po_no']) ?></td>
@@ -91,12 +100,18 @@ include ROOT_PATH . '/includes/header.php';
                     <td class="num"><?= inr($p['subtotal']) ?></td>
                     <td class="num"><?= inr($p['gst_amount']) ?></td>
                     <td class="num fw-semibold"><?= inr($p['total']) ?></td>
-                    <td><?= status_badge($status) ?></td>
+                    <td><?= status_badge($payStatus) ?></td>
+                    <td><?= status_badge($inStatus) ?><div class="small text-muted"><?= qty($rec) ?> / <?= qty($ord) ?></div></td>
                     <td class="text-end no-export text-nowrap">
+                        <?php if ($inStatus !== 'Complete' && $inStatus !== 'N/A'): ?>
+                            <a href="<?= url('inward/add') ?>?purchase_id=<?= (int)$p['id'] ?>" class="btn btn-sm btn-primary" title="Inward against PO"><i class="bi bi-box-arrow-in-down"></i></a>
+                        <?php else: ?>
+                            <a href="<?= url('inward') ?>?purchase_id=<?= (int)$p['id'] ?>" class="btn btn-sm btn-light" title="View inwards"><i class="bi bi-box-seam"></i></a>
+                        <?php endif; ?>
                         <a href="<?= url('purchase/print/' . $p['id']) ?>" class="btn btn-sm btn-light" title="Print PO"><i class="bi bi-printer"></i></a>
                         <a href="<?= url('purchase/edit/' . $p['id']) ?>" class="btn btn-sm btn-outline-primary"><i class="bi bi-pencil"></i></a>
                         <?php if (is_admin()): ?>
-                            <form method="post" class="d-inline" data-confirm="Delete this purchase? Stock and payments of this entry will also be removed.">
+                            <form method="post" class="d-inline" data-confirm="Delete this Purchase Order?">
                                 <?= csrf_field() ?><input type="hidden" name="action" value="delete"><input type="hidden" name="id" value="<?= $p['id'] ?>">
                                 <button class="btn btn-sm btn-outline-danger"><i class="bi bi-trash"></i></button>
                             </form>
@@ -104,9 +119,9 @@ include ROOT_PATH . '/includes/header.php';
                     </td>
                 </tr>
             <?php endforeach; ?>
-            <?php if (!$list): ?><tr><td colspan="12" class="text-center text-muted py-4">No purchase entries for selected period.</td></tr><?php endif; ?>
+            <?php if (!$list): ?><tr><td colspan="13" class="text-center text-muted py-4">No purchase entries for selected period.</td></tr><?php endif; ?>
             </tbody>
-            <tfoot><tr><td colspan="7">Total</td><td class="num"><?= inr($tot['sub']) ?></td><td class="num"><?= inr($tot['gst']) ?></td><td class="num"><?= inr($tot['total']) ?></td><td colspan="2"></td></tr></tfoot>
+            <tfoot><tr><td colspan="7">Total</td><td class="num"><?= inr($tot['sub']) ?></td><td class="num"><?= inr($tot['gst']) ?></td><td class="num"><?= inr($tot['total']) ?></td><td colspan="3"></td></tr></tfoot>
         </table>
     </div>
 </div>

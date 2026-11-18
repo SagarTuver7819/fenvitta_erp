@@ -58,6 +58,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         'remarks' => post('remarks'),
     ];
 
+    // Stock is added only from Inward Entry (against PO), not from PO save.
+    $hasInward = $id ? (int)val('SELECT COUNT(*) FROM inward_entries WHERE purchase_id=?', [$id]) > 0 : false;
+    if ($hasInward) {
+        // Keep item lines locked once any inward exists (partial / full)
+        update('purchases', $data, $id);
+        flash('success', 'PO details updated. Item lines are locked because inward exists — use Inward Entry for stock.');
+        redirect(post('save_print') ? "purchase/print/$id" : 'purchase');
+    }
+
     db_begin();
     if ($id) {
         update('purchases', $data, $id);
@@ -66,20 +75,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $data['created_by'] = current_user()['id'];
         $id = insert('purchases', $data);
     }
-
-    // Items + stock IN (service items are not stock items)
-    ledger_clear('PURCHASE', $id);
     foreach ($lines as $line) {
         $line['purchase_id'] = $id;
         insert('purchase_items', $line);
-        $type = val('SELECT item_type FROM items WHERE id=?', [$line['item_id']]);
-        if ($type !== 'SERVICE') {
-            ledger_add($date, $line['item_id'], $line['qty'], 0, 'PURCHASE', $id, $line['rate'], null, 'Purchase ' . $data['invoice_no']);
-        }
     }
     db_commit();
 
-    flash('success', 'Purchase entry saved.');
+    flash('success', 'Purchase Order saved. Use Inward Entry against this PO to receive stock (partial allowed).');
     redirect(post('save_print') ? "purchase/print/$id" : 'purchase');
 }
 
@@ -110,14 +112,21 @@ $rowHtml = function ($l) use ($items) {
     <?php return ob_get_clean();
 };
 
-$pageTitle = $purchase ? 'Edit Purchase Entry' : 'New Purchase Entry';
-$active = 'purchases';
+$hasInward = $id ? (int)val('SELECT COUNT(*) FROM inward_entries WHERE purchase_id=?', [$id]) > 0 : false;
+
+$pageTitle = $purchase ? 'Edit Purchase Order' : 'New Purchase Order';
+$active = 'purchase';
 include ROOT_PATH . '/includes/header.php';
 ?>
+<?php if ($hasInward): ?>
+<div class="alert alert-warning"><i class="bi bi-lock"></i> This PO has Inward entries — item lines are locked. Header details can still be updated.
+    <a href="<?= url('inward/add') ?>?purchase_id=<?= $id ?>" class="alert-link">Add another partial inward</a>
+</div>
+<?php endif; ?>
 <form method="post" data-line-items>
     <?= csrf_field() ?>
     <div class="card mb-3">
-        <div class="card-header"><i class="bi bi-cart-plus"></i> Purchase Details</div>
+        <div class="card-header"><i class="bi bi-cart-plus"></i> Purchase Order Details</div>
         <div class="card-body row g-2">
             <div class="col-md-2"><label class="form-label">Date *</label><input type="date" name="purchase_date" class="form-control" required value="<?= e($p['purchase_date']) ?>"></div>
             <div class="col-md-2"><label class="form-label">PO No.</label><input name="po_no" class="form-control" value="<?= e($p['po_no']) ?>"></div>
@@ -148,7 +157,9 @@ include ROOT_PATH . '/includes/header.php';
 
     <div class="card mb-3">
         <div class="card-header"><i class="bi bi-list-ol"></i> Items
+            <?php if (!$hasInward): ?>
             <div class="actions"><button type="button" class="btn btn-sm btn-accent add-row"><i class="bi bi-plus-lg"></i> Add Item</button></div>
+            <?php endif; ?>
         </div>
         <div class="table-responsive">
             <table class="table item-table">
@@ -156,7 +167,9 @@ include ROOT_PATH . '/includes/header.php';
                 <tbody><?php foreach ($lines as $l) echo $rowHtml($l); ?></tbody>
             </table>
         </div>
+        <?php if (!$hasInward): ?>
         <template class="row-tpl"><?= $rowHtml(['item_id' => '', 'description' => '', 'qty' => '', 'unit' => '', 'rate' => '', 'gst_rate' => 18]) ?></template>
+        <?php endif; ?>
     </div>
 
     <div class="row g-3">
