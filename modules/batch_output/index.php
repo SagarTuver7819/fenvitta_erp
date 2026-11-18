@@ -31,16 +31,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && post('action') === 'save') {
         'remarks' => post('remarks'),
     ]);
     sync_output_stock($id);
+    refresh_production_status($batchId);
 
-    if (post('mark_completed')) {
-        $b = row('SELECT * FROM production_batches WHERE id=?', [$batchId]);
-        update('production_batches', [
-            'status' => 'Completed',
-            'end_date' => $b['end_date'] ?: $date,
-            'mfg_date' => $b['mfg_date'] ?: $date,
-        ], $batchId);
+    $b = row('SELECT * FROM production_batches WHERE id=?', [$batchId]);
+    $msg = 'Output entry saved' . (post('qc_status') === 'Approved' ? ' and added to Finish Goods stock.' : '. It will be added to stock after QC approval.');
+    if ($b && $b['status'] === 'Production Done') {
+        $msg .= ' Production batch marked Production Done (1000 kg complete).';
     }
-    flash('success', 'Output entry saved' . (post('qc_status') === 'Approved' ? ' and added to Finish Goods stock.' : '. It will be added to stock after QC approval.'));
+    flash('success', $msg);
     redirect('batch_output?batch_id=' . $batchId);
 }
 
@@ -55,6 +53,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && post('action') === 'qc') {
         } else {
             update('batch_outputs', ['qc_status' => $newStatus], $id);
             sync_output_stock($id);
+            if (!empty($o['batch_id'])) refresh_production_status((int)$o['batch_id']);
             flash('success', 'QC status updated to ' . $newStatus . '.');
         }
     }
@@ -70,6 +69,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && post('action') === 'delete') {
     } elseif ($o) {
         ledger_clear('BATCH_OUTPUT', $id);
         q('DELETE FROM batch_outputs WHERE id=?', [$id]);
+        if (!empty($o['batch_id'])) refresh_production_status((int)$o['batch_id']);
         flash('success', 'Output entry deleted.');
     }
     redirect('batch_output?batch_id=' . ($o['batch_id'] ?? ''));
@@ -109,10 +109,7 @@ include ROOT_PATH . '/includes/header.php';
                         <div class="col-6"><label class="form-label">Pack Type</label><input name="pack_type" class="form-control" list="packList" value="HDPE Drum">
                             <datalist id="packList"><option>HDPE Drum</option><option>Fibre Drum</option><option>Bag</option><option>Carboy</option></datalist></div>
                         <div class="col-12"><label class="form-label">Remarks</label><input name="remarks" class="form-control"></div>
-                        <div class="col-12 form-check ms-1">
-                            <input type="checkbox" class="form-check-input" name="mark_completed" id="mc" value="1" checked>
-                            <label for="mc" class="form-check-label">Mark batch as <b>Completed</b></label>
-                        </div>
+                        <div class="col-12"><small class="text-muted">When approved output reaches <b>1000 kg</b> (batch size), status auto-sets to <b>Production Done</b>.</small></div>
                     </div>
                     <button class="btn btn-primary mt-3"><i class="bi bi-check2"></i> Save Output</button>
                 </form>

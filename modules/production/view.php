@@ -5,7 +5,10 @@ $id = (int)get('id');
 $b = row('SELECT b.*, i.name product, i.unit, i.cas_no FROM production_batches b JOIN items i ON i.id = b.item_id WHERE b.id=?', [$id]);
 if (!$b) redirect('production');
 
-$rm = rows('SELECT r.*, i.name item_name, i.unit FROM batch_rm r JOIN items i ON i.id = r.item_id WHERE r.batch_id=? ORDER BY r.issue_date, r.id', [$id]);
+$rm = rows('SELECT r.*, i.name item_name, i.unit, rb.batch_no rm_batch_no
+            FROM batch_rm r JOIN items i ON i.id = r.item_id
+            LEFT JOIN rm_batches rb ON rb.id = r.rm_batch_id
+            WHERE r.batch_id=? ORDER BY r.issue_date, r.id', [$id]);
 $data = rows('SELECT * FROM batch_data WHERE batch_id=? ORDER BY entry_date, start_time, id', [$id]);
 $outputs = rows('SELECT * FROM batch_outputs WHERE batch_id=? ORDER BY output_date, id', [$id]);
 $dispatches = rows('SELECT di.*, d.dispatch_no, d.dispatch_date, d.invoice_no, d.id did, p.name party FROM dispatch_items di
@@ -58,17 +61,28 @@ include ROOT_PATH . '/includes/header.php';
 <div class="row g-3">
     <div class="col-xl-6">
         <div class="card h-100">
-            <div class="card-header"><i class="bi bi-diagram-3"></i> Batch Wise RM Use</div>
+            <div class="card-header"><i class="bi bi-diagram-3"></i> RM Batches Used in this Production Batch
+                <?php if ($outQty + 0.0005 >= (float)$b['batch_size'] && (float)$b['batch_size'] > 0): ?>
+                    <span class="ms-2"><?= status_badge('Production Done') ?></span>
+                <?php endif; ?>
+            </div>
             <div class="table-responsive">
                 <table class="table table-sm">
-                    <thead><tr><th>Date</th><th>Material</th><th class="num">Qty</th><th class="num">Rate</th><th class="num">Cost</th></tr></thead>
+                    <thead><tr><th>Date</th><th>Material</th><th>RM Batch No</th><th class="num">Qty Used</th><th class="num">Rate</th><th class="num">Cost</th></tr></thead>
                     <tbody>
                     <?php foreach ($rm as $r): ?>
-                        <tr><td><?= dmy($r['issue_date']) ?></td><td><?= e($r['item_name']) ?></td><td class="num"><?= qty($r['qty'], 3) ?> <?= e($r['unit']) ?></td><td class="num"><?= inr($r['rate']) ?></td><td class="num"><?= inr($r['qty'] * $r['rate']) ?></td></tr>
+                        <tr>
+                            <td><?= dmy($r['issue_date']) ?></td>
+                            <td><?= e($r['item_name']) ?></td>
+                            <td><span class="badge badge-type"><?= e($r['rm_batch_no'] ?: '-') ?></span></td>
+                            <td class="num"><?= qty($r['qty'], 3) ?> <?= e($r['unit']) ?></td>
+                            <td class="num"><?= inr($r['rate']) ?></td>
+                            <td class="num"><?= inr($r['qty'] * $r['rate']) ?></td>
+                        </tr>
                     <?php endforeach; ?>
-                    <?php if (!$rm): ?><tr><td colspan="5" class="text-center text-muted py-3">No RM issued. <a href="<?= url('batch_rm') ?>?batch_id=<?= $id ?>">Issue now</a></td></tr><?php endif; ?>
+                    <?php if (!$rm): ?><tr><td colspan="6" class="text-center text-muted py-3">No RM issued. <a href="<?= url('batch_rm') ?>?batch_id=<?= $id ?>">Issue from RM batches</a></td></tr><?php endif; ?>
                     </tbody>
-                    <tfoot><tr><td colspan="2">Total</td><td class="num"><?= qty($rmQty, 3) ?></td><td></td><td class="num"><?= inr($rmCost) ?></td></tr></tfoot>
+                    <tfoot><tr><td colspan="3">Total</td><td class="num"><?= qty($rmQty, 3) ?></td><td></td><td class="num"><?= inr($rmCost) ?></td></tr></tfoot>
                 </table>
             </div>
         </div>

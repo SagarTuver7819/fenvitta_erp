@@ -24,6 +24,7 @@ $navMenu = [
     ]],
     ['WAREHOUSE', null, [
         ['Raw Material Stock', 'bi-box-seam', 'rm_stock', 'rm_stock'],
+        ['RM Batches', 'bi-layers', 'rm_batches', 'rm_batches'],
         ['RM Utilities Entry', 'bi-droplet-half', 'rm_utilities', 'rm_utilities'],
         ['Finish Goods Stock', 'bi-boxes', 'fg_stock', 'fg_stock'],
         ['Dispatch Record', 'bi-journal-text', 'dispatch/register', 'dispatch_register'],

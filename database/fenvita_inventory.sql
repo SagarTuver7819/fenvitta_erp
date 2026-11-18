@@ -186,11 +186,27 @@ CREATE TABLE production_batches (
   end_date DATE NULL,
   mfg_date DATE NULL,
   exp_date DATE NULL,
-  status ENUM('Planned','In Process','Completed','Cancelled') NOT NULL DEFAULT 'Planned',
+  status ENUM('Planned','In Process','Production Done','Completed','Cancelled') NOT NULL DEFAULT 'Planned',
   remarks TEXT NULL,
   created_by INT NULL,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   INDEX (item_id), INDEX (status)
+) ENGINE=InnoDB;
+
+-- RM lot / batch created automatically on Inward (stock identity for production use)
+CREATE TABLE rm_batches (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  batch_no VARCHAR(40) NOT NULL,
+  item_id INT NOT NULL,
+  inward_id INT NOT NULL,
+  inward_item_id INT NOT NULL,
+  party_id INT NULL,
+  inward_date DATE NOT NULL,
+  qty DECIMAL(14,3) NOT NULL DEFAULT 0,
+  rate DECIMAL(14,2) NOT NULL DEFAULT 0,
+  remarks VARCHAR(255) NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  INDEX (batch_no), INDEX (item_id), INDEX (inward_id), INDEX (inward_item_id)
 ) ENGINE=InnoDB;
 
 CREATE TABLE batch_rm (
@@ -198,11 +214,12 @@ CREATE TABLE batch_rm (
   batch_id INT NOT NULL,
   issue_date DATE NOT NULL,
   item_id INT NOT NULL,
+  rm_batch_id INT NULL,
   qty DECIMAL(14,3) NOT NULL DEFAULT 0,
   rate DECIMAL(14,2) NOT NULL DEFAULT 0,
   remarks VARCHAR(255) NULL,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  INDEX (batch_id), INDEX (item_id)
+  INDEX (batch_id), INDEX (item_id), INDEX (rm_batch_id)
 ) ENGINE=InnoDB;
 
 CREATE TABLE batch_data (
@@ -334,6 +351,7 @@ INSERT INTO settings (skey, svalue) VALUES
 ('po_prefix', 'FNV'),
 ('dispatch_prefix', 'DSP'),
 ('inward_prefix', 'GRN'),
+('rm_batch_prefix', 'RMB'),
 ('label_storage', 'Store in a well closed container at a temperature not exceeding 30Â°C. Protect from light & moisture.'),
 ('po_terms', 'Material shelf life should not be more than 3 months. Invoice, Packing list, LR copy, original COA with sign and stamp must come with material. Packing label must contain Product Name, CAS No., Batch No., Mfg. Date, Exp. Date, Net Wt., Tare Wt., Gross Wt. & QR Code. All terms and conditions as per Rajkot jurisdiction.');
 

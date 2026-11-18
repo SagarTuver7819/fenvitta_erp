@@ -177,6 +177,72 @@ $migrations['2026_11_18_inward_convert_purchase_stock'] = function () {
     sync_log("Converted $n purchase stock entry(ies) to Inward");
 };
 
+$migrations['2026_11_18_rm_batches_and_production_done'] = function () {
+    if (!sync_table_exists('rm_batches')) {
+        q("CREATE TABLE rm_batches (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          batch_no VARCHAR(40) NOT NULL,
+          item_id INT NOT NULL,
+          inward_id INT NOT NULL,
+          inward_item_id INT NOT NULL,
+          party_id INT NULL,
+          inward_date DATE NOT NULL,
+          qty DECIMAL(14,3) NOT NULL DEFAULT 0,
+          rate DECIMAL(14,2) NOT NULL DEFAULT 0,
+          remarks VARCHAR(255) NULL,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          INDEX (batch_no), INDEX (item_id), INDEX (inward_id), INDEX (inward_item_id)
+        ) ENGINE=InnoDB");
+        sync_log('Created table rm_batches');
+    } else {
+        sync_log('Table rm_batches already exists');
+    }
+
+    $col = val("SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='batch_rm' AND COLUMN_NAME='rm_batch_id'");
+    if (!(int)$col) {
+        q('ALTER TABLE batch_rm ADD COLUMN rm_batch_id INT NULL AFTER item_id, ADD INDEX (rm_batch_id)');
+        sync_log('Added batch_rm.rm_batch_id');
+    } else {
+        sync_log('Column batch_rm.rm_batch_id already exists');
+    }
+
+    q("ALTER TABLE production_batches MODIFY status ENUM('Planned','In Process','Production Done','Completed','Cancelled') NOT NULL DEFAULT 'Planned'");
+    sync_log('Updated production_batches status enum (Production Done)');
+
+    q("UPDATE production_batches SET status='Production Done'
+        WHERE status='Completed'
+          AND batch_size > 0
+          AND (SELECT COALESCE(SUM(qty),0) FROM batch_outputs o WHERE o.batch_id=production_batches.id AND o.qc_status='Approved') + 0.0005 >= batch_size");
+    sync_log('Renamed completed-full batches to Production Done where output >= size');
+
+    q("INSERT INTO settings (skey, svalue) VALUES ('rm_batch_prefix', 'RMB') ON DUPLICATE KEY UPDATE skey = skey");
+
+    // Create RM batches for existing inward lines that don't have one yet
+    $lines = rows("SELECT ii.*, ie.inward_date, ie.inward_no, ie.party_id, i.item_type
+                   FROM inward_items ii
+                   JOIN inward_entries ie ON ie.id = ii.inward_id
+                   JOIN items i ON i.id = ii.item_id
+                   WHERE i.item_type IN ('RM','PM','CONSUMABLE')
+                     AND NOT EXISTS (SELECT 1 FROM rm_batches rb WHERE rb.inward_item_id = ii.id)
+                   ORDER BY ii.id");
+    $n = 0;
+    foreach ($lines as $l) {
+        insert('rm_batches', [
+            'batch_no' => next_rm_batch_no($l['inward_date']),
+            'item_id' => (int)$l['item_id'],
+            'inward_id' => (int)$l['inward_id'],
+            'inward_item_id' => (int)$l['id'],
+            'party_id' => (int)$l['party_id'],
+            'inward_date' => $l['inward_date'],
+            'qty' => (float)$l['qty'],
+            'rate' => (float)$l['rate'],
+            'remarks' => 'From inward ' . $l['inward_no'] . ' (DB Sync)',
+        ]);
+        $n++;
+    }
+    sync_log("Created $n RM batch(es) from existing inward lines");
+};
+
 // ---------- Run ----------
 $doRun = $_SERVER['REQUEST_METHOD'] === 'POST' || get('run') === '1';
 $status = [];

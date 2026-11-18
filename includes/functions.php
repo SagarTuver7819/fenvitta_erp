@@ -268,6 +268,90 @@ function purchase_inward_totals(int $purchaseId): array
     ];
 }
 
+/* ---------------- RM Batches (created on Inward) ---------------- */
+function next_rm_batch_no(?string $date = null): string
+{
+    return next_series('rm_batches', 'batch_no', setting('rm_batch_prefix', 'RMB'), $date);
+}
+
+/** Available qty left in one RM batch. */
+function rm_batch_available(int $rmBatchId, int $exceptBatchRmId = 0): float
+{
+    $qty = (float)val('SELECT qty FROM rm_batches WHERE id=?', [$rmBatchId]);
+    $used = (float)val('SELECT COALESCE(SUM(qty),0) FROM batch_rm WHERE rm_batch_id=? AND id<>?', [$rmBatchId, $exceptBatchRmId]);
+    return max(0, $qty - $used);
+}
+
+/** Open RM batches for issue (available > 0). */
+function rm_batches_available(?int $itemId = null): array
+{
+    $sql = "SELECT rb.*, i.name item_name, i.unit, i.code item_code, pa.name party,
+                   rb.qty - COALESCE((SELECT SUM(br.qty) FROM batch_rm br WHERE br.rm_batch_id = rb.id),0) available
+            FROM rm_batches rb
+            JOIN items i ON i.id = rb.item_id
+            LEFT JOIN parties pa ON pa.id = rb.party_id
+            WHERE 1=1";
+    $params = [];
+    if ($itemId) {
+        $sql .= ' AND rb.item_id = ?';
+        $params[] = $itemId;
+    }
+    return rows($sql . ' HAVING available > 0.0005 ORDER BY rb.inward_date, rb.id', $params);
+}
+
+/** Create RM batch row for one inward line (RM/PM/CONSUMABLE). */
+function rm_batch_create_from_inward(int $inwardId, int $inwardItemId, array $line, string $date, int $partyId, string $inwardNo): ?int
+{
+    $type = val('SELECT item_type FROM items WHERE id=?', [$line['item_id']]);
+    if (!in_array($type, ['RM', 'PM', 'CONSUMABLE'], true)) return null;
+    return insert('rm_batches', [
+        'batch_no' => next_rm_batch_no($date),
+        'item_id' => (int)$line['item_id'],
+        'inward_id' => $inwardId,
+        'inward_item_id' => $inwardItemId,
+        'party_id' => $partyId,
+        'inward_date' => $date,
+        'qty' => (float)$line['qty'],
+        'rate' => (float)$line['rate'],
+        'remarks' => 'From inward ' . $inwardNo,
+    ]);
+}
+
+function rm_batches_used_on_inward(int $inwardId): bool
+{
+    return (int)val(
+        'SELECT COUNT(*) FROM batch_rm br JOIN rm_batches rb ON rb.id = br.rm_batch_id WHERE rb.inward_id=?',
+        [$inwardId]
+    ) > 0;
+}
+
+/** Auto status: Production Done when approved output >= batch_size (default 1000 kg). */
+function refresh_production_status(int $batchId): void
+{
+    $b = row('SELECT * FROM production_batches WHERE id=?', [$batchId]);
+    if (!$b || $b['status'] === 'Cancelled') return;
+
+    $outQty = (float)val("SELECT COALESCE(SUM(qty),0) FROM batch_outputs WHERE batch_id=? AND qc_status='Approved'", [$batchId]);
+    $size = (float)$b['batch_size'];
+    $hasRm = (int)val('SELECT COUNT(*) FROM batch_rm WHERE batch_id=?', [$batchId]) > 0;
+
+    if ($size > 0 && $outQty + 0.0005 >= $size) {
+        $data = ['status' => 'Production Done'];
+        if (!$b['end_date']) $data['end_date'] = today();
+        if (!$b['mfg_date']) $data['mfg_date'] = today();
+        update('production_batches', $data, $batchId);
+    } elseif ($b['status'] === 'Production Done' && $outQty + 0.0005 < $size) {
+        update('production_batches', ['status' => ($hasRm || $outQty > 0 ? 'In Process' : 'Planned')], $batchId);
+    } elseif ($b['status'] === 'Planned' && ($hasRm || $outQty > 0)) {
+        update('production_batches', ['status' => 'In Process'], $batchId);
+    } elseif ($b['status'] === 'Completed') {
+        // legacy status name -> new name when target reached
+        if ($size > 0 && $outQty + 0.0005 >= $size) {
+            update('production_batches', ['status' => 'Production Done'], $batchId);
+        }
+    }
+}
+
 /* ---------------- Stock ---------------- */
 function ledger_clear(string $refType, int $refId): void
 {
@@ -334,12 +418,12 @@ function fg_batches(bool $onlyAvailable = true): array
 /** <option> list of production batches. $onlyOpen = hide Completed / Cancelled */
 function batch_options($selected = null, bool $onlyOpen = false): string
 {
-    $sql = "SELECT b.id, b.batch_no, b.status, i.name item_name FROM production_batches b JOIN items i ON i.id = b.item_id WHERE b.status <> 'Cancelled'";
-    if ($onlyOpen) $sql .= " AND b.status <> 'Completed'";
+    $sql = "SELECT b.id, b.batch_no, b.status, b.batch_size, i.name item_name FROM production_batches b JOIN items i ON i.id = b.item_id WHERE b.status <> 'Cancelled'";
+    if ($onlyOpen) $sql .= " AND b.status NOT IN ('Completed','Production Done')";
     $html = '<option value="">-- Select Batch --</option>';
     foreach (rows($sql . ' ORDER BY b.id DESC') as $b) {
         $html .= '<option value="' . $b['id'] . '"' . ((string)$selected === (string)$b['id'] ? ' selected' : '') . '>'
-            . e($b['batch_no'] . ' - ' . $b['item_name'] . ' (' . $b['status'] . ')') . '</option>';
+            . e($b['batch_no'] . ' - ' . $b['item_name'] . ' · ' . qty($b['batch_size']) . ' kg (' . $b['status'] . ')') . '</option>';
     }
     return $html;
 }
@@ -425,7 +509,8 @@ function delete_button(string $module, int $id, string $confirm = 'Delete this e
 function status_badge(string $s): string
 {
     $map = [
-        'Paid' => 'success', 'Received' => 'success', 'Completed' => 'success', 'Complete' => 'success', 'Approved' => 'success', 'Dispatched' => 'success',
+        'Paid' => 'success', 'Received' => 'success', 'Completed' => 'success', 'Complete' => 'success', 'Production Done' => 'success',
+        'Approved' => 'success', 'Dispatched' => 'success',
         'Partial' => 'warning', 'In Process' => 'warning', 'Pending' => 'secondary', 'Planned' => 'info',
         'Overdue' => 'danger', 'Cancelled' => 'dark', 'Rejected' => 'danger', 'Unpaid' => 'secondary', 'Not Dispatched' => 'secondary',
     ];

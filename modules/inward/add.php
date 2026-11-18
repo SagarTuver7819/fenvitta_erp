@@ -63,9 +63,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         'remarks' => post('remarks'),
     ];
 
+    if ($id && rm_batches_used_on_inward($id)) {
+        flash('danger', 'This inward has RM batches already used in Production. Cannot edit.');
+        redirect("inward/edit/$id");
+    }
+
     db_begin();
     if ($id) {
         update('inward_entries', $data, $id);
+        q('DELETE FROM rm_batches WHERE inward_id=?', [$id]);
         q('DELETE FROM inward_items WHERE inward_id=?', [$id]);
         ledger_clear('INWARD', $id);
     } else {
@@ -73,16 +79,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $id = insert('inward_entries', $data);
     }
 
+    $rmCreated = 0;
     foreach ($saveLines as $line) {
         $line['inward_id'] = $id;
-        insert('inward_items', $line);
+        $iiId = insert('inward_items', $line);
         ledger_add($date, $line['item_id'], $line['qty'], 0, 'INWARD', $id, $line['rate'], null,
             'Inward ' . $data['inward_no'] . ' against PO ' . $po['po_no']);
+        if (rm_batch_create_from_inward($id, (int)$iiId, $line, $date, (int)$po['party_id'], $data['inward_no'])) {
+            $rmCreated++;
+        }
     }
     db_commit();
 
     $tot = purchase_inward_totals($purchaseId);
-    flash('success', 'Inward saved. PO status: ' . $tot['status'] . ' (Received ' . qty($tot['received']) . ' / ' . qty($tot['ordered']) . ').');
+    flash('success', 'Inward saved. PO: ' . $tot['status'] . ' · RM batches created: ' . $rmCreated . '.');
     redirect('inward');
 }
 

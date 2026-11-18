@@ -1,7 +1,8 @@
 <?php
 require_once __DIR__ . '/../../includes/init.php';
 
-$statuses = ['Planned', 'In Process', 'Completed', 'Cancelled'];
+$statuses = ['Planned', 'In Process', 'Production Done', 'Cancelled'];
+$fixedBatchSize = 1000; // one production batch = fixed 1000 kg
 
 // ---------- Save batch ----------
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && post('action') === 'save') {
@@ -10,7 +11,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && post('action') === 'save') {
         'batch_no' => strtoupper(post('batch_no')),
         'item_id' => (int)post('item_id'),
         'plant' => post('plant'),
-        'batch_size' => num(post('batch_size')),
+        'batch_size' => $fixedBatchSize, // fixed 1000 kg per production batch
         'start_date' => date_or_null(post('start_date')),
         'end_date' => date_or_null(post('end_date')),
         'mfg_date' => date_or_null(post('mfg_date')),
@@ -84,8 +85,9 @@ $list = rows($sql . ' ORDER BY b.id DESC', $params);
 $suggest = [];
 foreach ($fgItems as $it) $suggest[$it['id']] = ['no' => next_batch_no($it), 'shelf' => (int)$it['shelf_life_months']];
 
-$b = $edit ?? ['id' => '', 'batch_no' => '', 'item_id' => '', 'plant' => PLANTS[0], 'batch_size' => 1000, 'start_date' => today(),
-    'end_date' => '', 'mfg_date' => '', 'exp_date' => '', 'status' => 'In Process', 'remarks' => ''];
+$b = $edit ?? ['id' => '', 'batch_no' => '', 'item_id' => '', 'plant' => PLANTS[0], 'batch_size' => $fixedBatchSize, 'start_date' => today(),
+    'end_date' => '', 'mfg_date' => '', 'exp_date' => '', 'status' => 'Planned', 'remarks' => ''];
+if (!$edit) $b['batch_size'] = $fixedBatchSize;
 
 $pageTitle = 'Production Batches';
 $active = 'production';
@@ -109,7 +111,11 @@ include ROOT_PATH . '/includes/header.php';
                             </select>
                         </div>
                         <div class="col-7"><label class="form-label">Batch No *</label><input name="batch_no" id="bNo" class="form-control fw-bold" required value="<?= e($b['batch_no']) ?>"></div>
-                        <div class="col-5"><label class="form-label">Batch Size (kg)</label><input type="number" step="0.001" name="batch_size" class="form-control" value="<?= e($b['batch_size']) ?>"></div>
+                        <div class="col-5"><label class="form-label">Batch Size (kg)</label>
+                            <input type="number" class="form-control" value="<?= (int)$fixedBatchSize ?>" readonly>
+                            <input type="hidden" name="batch_size" value="<?= (int)$fixedBatchSize ?>">
+                            <small class="text-muted">Fixed 1000 kg</small>
+                        </div>
                         <div class="col-12">
                             <label class="form-label">Plant / Location</label>
                             <input name="plant" class="form-control" list="plantList" value="<?= e($b['plant']) ?>">
